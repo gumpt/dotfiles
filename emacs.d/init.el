@@ -47,10 +47,11 @@
     '("lisp" "lisp/use-package" "lisp/rtags")))
 
 (require 'use-package)
-(require 'rtags)
-(require 'company-rtags)
 
 (use-package gruvbox-theme
+  :ensure t)
+
+(use-package base16-theme
   :ensure t)
 
 (use-package idle-highlight-mode
@@ -85,6 +86,14 @@
           company-require-match nil
           company-transformers '(company-sort-by-occurrence))
     (global-company-mode)))
+
+(use-package company-ghci
+  :ensure t
+  :config
+  (progn
+    (push 'company-ghci company-backends)
+    (add-hook 'haskell-mode-hook 'company-mode)
+    (add-hook 'haskell-interactive-mode-hook 'company-mode)))
 
 (use-package powerline
   :ensure t
@@ -126,6 +135,13 @@
     (setq org-agenda-files (list "~/org/work.org"
                                  "~/org/home.org"
                                  "~/Documents/worldview/worldview.org"))))
+
+(use-package org-bullets
+  :ensure t
+  :config
+  (add-hook 'org-mode-hook (lambda () (org-bullets-mode 1))))
+
+(setq org-hide-leading-stars t)
 
 (use-package magit
   :ensure t
@@ -236,9 +252,9 @@
     (setq rtags-completions-enabled t)
     (rtags-diagnostics)))
 
-(use-package company-rtags
-  :ensure t
-  :config
+(progn
+  (require 'rtags)
+  (require 'company-rtags)
   (push 'company-rtags company-backends))
 
 ;; Undo the work of helm-config
@@ -248,6 +264,8 @@
 (scroll-bar-mode -1)
 (global-hl-line-mode)
 (setq-default show-trailing-whitespace t)
+(show-paren-mode 1)
+(setq show-paren-delay 0)
 
 (setq-default sql-set-product 'postgres)
 
@@ -265,6 +283,7 @@
 (setq-default indent-tabs-mode nil)
 (idle-highlight-mode)
 (setq-default tab-width 4)
+(setq-default python-indent-offset 4)
 
 (setq-default c-default-style "stroustrup"
               c-basic-offset 4)
@@ -297,6 +316,12 @@
 ;; hippie expand - don't try to complete with file names
 (setq-default hippie-expand-try-functions-list (delete 'try-complete-file-name hippie-expand-try-functions-list))
 (setq-default hippie-expand-try-functions-list (delete 'try-complete-file-name-partially hippie-expand-try-functions-list))
+
+(when (eq system-type 'darwin)
+  (setq mac-command-modifier 'meta)
+  (setq mac-option-modifier 'super)
+  (setq mac-control-modifier 'control)
+  (setq ns-function-modifier 'hyper))
 
 (setq-default ido-use-filename-at-point nil)
 
@@ -334,7 +359,7 @@
  '(package-selected-packages
    (quote
     (rust-mode 0blayout company-rtags helm-rtags rtags base16-theme clang-format yaml-mode gruvbox-theme groovy-mode ninja-mode yascroll vagrant-tramp rainbow-mode rainbow-delimiters powerline paredit p4 multi-web-mode markdown-mode magit idle-highlight-mode helm-projectile company cmake-mode buffer-move gruvbox)))
- '(rtags-path "/home/tsi/mbgumport/git/rtags/bin")
+ '(rtags-path "/home/mbgumport/git/rtags/bin")
  '(visible-bell t))
 (custom-set-faces
  ;; custom-set-faces was added by Custom.
