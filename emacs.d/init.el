@@ -230,7 +230,8 @@
   (("C-`"     . haskell-interactive-bring)
    ("C-c C-t" . haskell-process-do-type)
    ("C-c C-i" . haskell-process-do-info)
-   ("C-c C-k" . haskell-interactive-mode-clear)))
+   ("C-c C-k" . haskell-interactive-mode-clear)
+   ("C-c C-l" . haskell-process-load-file)))
 
 (use-package rtags
   :ensure t
