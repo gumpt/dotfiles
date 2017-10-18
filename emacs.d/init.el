@@ -3,6 +3,8 @@
   (message "Loading %s..." load-file-name))
 
 (setq message-log-max 16384)
+(setq inhibit-startup-message t)
+(setq initial-scratch-message nil)
 
 (set-terminal-coding-system 'utf-8)
 (set-keyboard-coding-system 'utf-8)
@@ -259,35 +261,33 @@
    ("C-c C-k" . haskell-interactive-mode-clear)
    ("C-c C-l" . haskell-process-load-file)))
 
-(use-package rtags
-  :ensure t
-  :init
-  (custom-set-variables
-   '(rtags-path "/home/tsi/mbgumport/git/rtags/bin"))
-  :bind
-  (("M-." . rtags-find-symbol-at-point)
-   ("M-," . rtags-find-references-at-point)
-   ("M-;" . rtags-find-file)
-   ("C-." . rtags-find-symbol)
-   ("C-," . rtags-find-references)
-   ("C-<" . rtags-find-virtuals-at-point)
-   ("M-i" . rtags-imenu)
-   ("C-*" . rtags-location-stack-back))
-  :config
-  (progn
-    (setq rtags-autostart-diagnostics t)
-    (setq rtags-completions-enabled t)
-    (rtags-diagnostics)))
-
+;; Assumes you have the rtags *el files in
+;; ~/.emacs.d/lisp/rtags
 (progn
   (require 'rtags)
   (require 'company-rtags)
-  (push 'company-rtags company-backends))
+  (custom-set-variables
+   '(rtags-path "/home/tsi/mbgumport/git/rtags/bin"))
+  (push 'company-rtags company-backends)
+  (bind-key "M-." 'rtags-find-symbol-at-point)
+  (bind-key "M-," 'rtags-find-references-at-point)
+  (bind-key "M-;" 'rtags-find-file)
+  (bind-key "C-." 'rtags-find-symbol)
+  (bind-key "C-," 'rtags-find-references)
+  (bind-key "C-<" 'rtags-find-virtuals-at-point)
+  (bind-key "C-i" 'rtags-imenu)
+  (bind-key "C-*" 'rtags-location-stack-back)
+  (setq rtags-autostart-diagnostics t)
+  (setq rtags-completions-enabled t)
+  (rtags-diagnostics))
 
 ;; Undo the work of helm-config
 (global-unset-key (kbd "C-x c"))
 (progn
   (bind-key "M-*" 'pop-tag-mark))
+
+(load-theme 'base16-gruvbox-dark-hard)
+(load-theme 'gruvbox)
 
 (custom-set-faces
  ;; custom-set-faces was added by Custom.
@@ -300,6 +300,3 @@
  '(linum ((t (:background "nil" :foreground "#f4f1ed" :height 0.7))))
  '(region ((t (:background "#647E5A"))))
  '(trailing-whitespace ((t (:background "light sky blue")))))
-
-(load-theme 'base16-gruvbox-dark-hard)
-(load-theme 'gruvbox)
