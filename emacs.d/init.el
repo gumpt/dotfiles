@@ -281,10 +281,12 @@
   (setq rtags-completions-enabled t)
   (rtags-diagnostics))
 
-;; Undo the work of helm-config
-(global-unset-key (kbd "C-x c"))
+;; Undo the work of helm-config, rtags
 (progn
-  (bind-key "M-*" 'pop-tag-mark))
+  (global-unset-key (kbd "C-x c"))
+  (global-unset-key (kbd "TAB"))
+  (bind-key "M-*" 'pop-tag-mark)
+  (bind-key "TAB" 'indent-for-tab-command))
 
 (load-theme 'base16-gruvbox-dark-hard)
 (load-theme 'gruvbox)
