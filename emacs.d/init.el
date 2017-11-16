@@ -75,6 +75,9 @@
              '("org" . "http://orgmode.org/elpa/") t)
 (package-initialize)
 
+;; For when using emacs over a tty
+(local-set-key (kbd "TAB") 'tab-to-tab-stop)
+
 (when (not package-archive-contents)
   (package-refresh-contents))
 
@@ -279,6 +282,7 @@
   (bind-key "C-*" 'rtags-location-stack-back)
   (setq rtags-autostart-diagnostics t)
   (setq rtags-completions-enabled t)
+  (setq rtags-display-result-backend 'helm)
   (rtags-diagnostics))
 
 ;; Undo the work of helm-config, rtags
@@ -286,7 +290,8 @@
   (global-unset-key (kbd "C-x c"))
   (global-unset-key (kbd "TAB"))
   (bind-key "M-*" 'pop-tag-mark)
-  (bind-key "TAB" 'indent-for-tab-command))
+  (bind-key "TAB" 'indent-for-tab-command)
+  (bind-key "TAB" 'helm-execute-persistent-action helm-map))
 
 (load-theme 'base16-gruvbox-dark-hard)
 (load-theme 'gruvbox)
