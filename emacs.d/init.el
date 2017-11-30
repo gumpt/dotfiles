@@ -266,6 +266,7 @@
 
 ;; Assumes you have the rtags *el files in
 ;; ~/.emacs.d/lisp/rtags
+;; https://github.com/Andersbakken/rtags
 (progn
   (require 'rtags)
   (require 'company-rtags)
@@ -293,9 +294,6 @@
   (bind-key "TAB" 'indent-for-tab-command)
   (bind-key "TAB" 'helm-execute-persistent-action helm-map))
 
-(load-theme 'base16-gruvbox-dark-hard)
-(load-theme 'gruvbox)
-
 (custom-set-faces
  ;; custom-set-faces was added by Custom.
  ;; If you edit it by hand, you could mess it up, so be careful.
@@ -307,3 +305,6 @@
  '(linum ((t (:background "nil" :foreground "#f4f1ed" :height 0.7))))
  '(region ((t (:background "#647E5A"))))
  '(trailing-whitespace ((t (:background "light sky blue")))))
+
+(load-theme 'base16-gruvbox-dark-hard)
+(load-theme 'gruvbox)
