@@ -1,17 +1,18 @@
 ;;; bind-key.el --- A simple way to manage personal keybindings
 
-;; Copyright (c) 2012-2015 john wiegley
+;; Copyright (c) 2012-2017 John Wiegley
 
-;; Author: John Wiegley <jwiegley@gmail.com>
-;; Maintainer: John Wiegley <jwiegley@gmail.com>
+;; Author: John Wiegley <johnw@newartisans.com>
+;; Maintainer: John Wiegley <johnw@newartisans.com>
 ;; Created: 16 Jun 2012
-;; Version: 1.0
+;; Modified: 29 Nov 2017
+;; Version: 2.4
 ;; Keywords: keys keybinding config dotemacs
 ;; URL: https://github.com/jwiegley/use-package
 
 ;; This program is free software; you can redistribute it and/or
 ;; modify it under the terms of the gnu general public license as
-;; published by the free software foundation; either version 2, or (at
+;; published by the free software foundation; either version 3, or (at
 ;; your option) any later version.
 
 ;; This program is distributed in the hope that it will be useful, but
@@ -35,22 +36,28 @@
 ;;
 ;;   (require 'bind-key)
 ;;
-;;   (bind-key "c-c x" 'my-ctrl-c-x-command)
+;;   (bind-key "C-c x" 'my-ctrl-c-x-command)
+;;
+;; If the keybinding argument is a vector, it is passed straight to
+;; `define-key', so remapping a key with `[remap COMMAND]' works as
+;; expected:
+;;
+;;   (bind-key [remap original-ctrl-c-x-command] 'my-ctrl-c-x-command)
 ;;
 ;; If you want the keybinding to override all minor modes that may also bind
 ;; the same key, use the `bind-key*' form:
 ;;
-;;   (bind-key* "<c-return>" 'other-window)
+;;   (bind-key* "<C-return>" 'other-window)
 ;;
 ;; If you want to rebind a key only in a particular keymap, use:
 ;;
-;;   (bind-key "c-c x" 'my-ctrl-c-x-command some-other-mode-map)
+;;   (bind-key "C-c x" 'my-ctrl-c-x-command some-other-mode-map)
 ;;
 ;; To unbind a key within a keymap (for example, to stop your favorite major
 ;; mode from changing a binding that you don't want to override everywhere),
 ;; use `unbind-key':
 ;;
-;;   (unbind-key "c-c x" some-other-mode-map)
+;;   (unbind-key "C-c x" some-other-mode-map)
 ;;
 ;; To bind multiple keys at once, or set up a prefix map, a `bind-keys' macro
 ;; is provided.  It accepts keyword arguments, please see its documentation
@@ -90,6 +97,8 @@
 ;; This display will tell you if you've overriden a default keybinding, and
 ;; what the default was.  Also, it will tell you if the key was rebound after
 ;; your binding it with `bind-key', and what it was rebound it to.
+
+;;; Code:
 
 (require 'cl-lib)
 (require 'easy-mmode)
@@ -135,13 +144,26 @@
 Elements have the form ((KEY . [MAP]) CMD ORIGINAL-CMD)")
 
 ;;;###autoload
-(defmacro bind-key (key-name command &optional keymap)
+(defmacro bind-key (key-name command &optional keymap predicate)
   "Bind KEY-NAME to COMMAND in KEYMAP (`global-map' if not passed).
 
 KEY-NAME may be a vector, in which case it is passed straight to
 `define-key'. Or it may be a string to be interpreted as
 spelled-out keystrokes, e.g., \"C-c C-z\". See documentation of
-`edmacro-mode' for details."
+`edmacro-mode' for details.
+
+COMMAND must be an interactive function or lambda form.
+
+KEYMAP, if present, should be a keymap and not a quoted symbol.
+For example:
+
+  (bind-key \"M-h\" #'some-interactive-function my-mode-map)
+
+If PREDICATE is non-nil, it is a form evaluated to determine when
+a key should be bound. It must return non-nil in such cases.
+Emacs can evaluate this form at any time that it does redisplay
+or operates on menu data structures, so you should write it so it
+can safely be called at any time."
   (let ((namevar (make-symbol "name"))
         (keyvar (make-symbol "key"))
         (kdescvar (make-symbol "kdesc"))
@@ -152,15 +174,25 @@ spelled-out keystrokes, e.g., \"C-c C-z\". See documentation of
             (,kdescvar (cons (if (stringp ,namevar) ,namevar
                                (key-description ,namevar))
                              (quote ,keymap)))
-            (,bindingvar (lookup-key (or ,keymap global-map)
-                                     ,keyvar)))
-       (add-to-list 'personal-keybindings
-                    (list ,kdescvar ,command
-                          (unless (numberp ,bindingvar) ,bindingvar)))
-       (define-key (or ,keymap global-map) ,keyvar ,command))))
+            (,bindingvar (lookup-key (or ,keymap global-map) ,keyvar)))
+       (let ((entry (assoc ,kdescvar personal-keybindings))
+             (details (list ,command
+                            (unless (numberp ,bindingvar)
+                              ,bindingvar))))
+         (if entry
+             (setcdr entry details)
+           (add-to-list 'personal-keybindings (cons ,kdescvar details))))
+       ,(if predicate
+            `(define-key (or ,keymap global-map) ,keyvar
+               '(menu-item "" nil :filter (lambda (&optional _)
+                                            (when ,predicate
+                                              ,command))))
+          `(define-key (or ,keymap global-map) ,keyvar ,command)))))
 
 ;;;###autoload
 (defmacro unbind-key (key-name &optional keymap)
+  "Unbind the given KEY-NAME, within the KEYMAP (if specified).
+See `bind-key' for more details."
   `(progn
      (bind-key ,key-name nil ,keymap)
      (setq personal-keybindings
@@ -174,73 +206,140 @@ spelled-out keystrokes, e.g., \"C-c C-z\". See documentation of
                          personal-keybindings))))
 
 ;;;###autoload
-(defmacro bind-key* (key-name command)
-  `(bind-key ,key-name ,command override-global-map))
+(defmacro bind-key* (key-name command &optional predicate)
+  "Similar to `bind-key', but overrides any mode-specific bindings."
+  `(bind-key ,key-name ,command override-global-map ,predicate))
+
+(defun bind-keys-form (args keymap)
+  "Bind multiple keys at once.
+
+Accepts keyword arguments:
+:map MAP               - a keymap into which the keybindings should be
+                         added
+:prefix KEY            - prefix key for these bindings
+:prefix-map MAP        - name of the prefix map that should be created
+                         for these bindings
+:prefix-docstring STR  - docstring for the prefix-map variable
+:menu-name NAME        - optional menu string for prefix map
+:filter FORM           - optional form to determine when bindings apply
+
+The rest of the arguments are conses of keybinding string and a
+function symbol (unquoted)."
+  (let (map
+        doc
+        prefix-map
+        prefix
+        filter
+        menu-name
+        pkg)
+
+    ;; Process any initial keyword arguments
+    (let ((cont t))
+      (while (and cont args)
+        (if (cond ((and (eq :map (car args))
+                        (not prefix-map))
+                   (setq map (cadr args)))
+                  ((eq :prefix-docstring (car args))
+                   (setq doc (cadr args)))
+                  ((and (eq :prefix-map (car args))
+                        (not (memq map '(global-map
+                                         override-global-map))))
+                   (setq prefix-map (cadr args)))
+                  ((eq :prefix (car args))
+                   (setq prefix (cadr args)))
+                  ((eq :filter (car args))
+                   (setq filter (cadr args)) t)
+                  ((eq :menu-name (car args))
+                   (setq menu-name (cadr args)))
+                  ((eq :package (car args))
+                   (setq pkg (cadr args))))
+            (setq args (cddr args))
+          (setq cont nil))))
+
+    (when (or (and prefix-map (not prefix))
+              (and prefix (not prefix-map)))
+      (error "Both :prefix-map and :prefix must be supplied"))
+
+    (when (and menu-name (not prefix))
+      (error "If :menu-name is supplied, :prefix must be too"))
+
+    (unless map (setq map keymap))
+
+    ;; Process key binding arguments
+    (let (first next)
+      (while args
+        (if (keywordp (car args))
+            (progn
+              (setq next args)
+              (setq args nil))
+          (if first
+              (nconc first (list (car args)))
+            (setq first (list (car args))))
+          (setq args (cdr args))))
+
+      (cl-flet
+          ((wrap (map bindings)
+                 (if (and map pkg (not (memq map '(global-map
+                                                   override-global-map))))
+                     `((if (boundp ',map)
+                           ,(macroexp-progn bindings)
+                         (eval-after-load
+                             ,(if (symbolp pkg) `',pkg pkg)
+                           ',(macroexp-progn bindings))))
+                   bindings)))
+
+        (append
+         (when prefix-map
+           `((defvar ,prefix-map)
+             ,@(when doc `((put ',prefix-map 'variable-documentation ,doc)))
+             ,@(if menu-name
+                   `((define-prefix-command ',prefix-map nil ,menu-name))
+                 `((define-prefix-command ',prefix-map)))
+             ,@(if (and map (not (eq map 'global-map)))
+                   (wrap map `((bind-key ,prefix ',prefix-map ,map ,filter)))
+                 `((bind-key ,prefix ',prefix-map nil ,filter)))))
+         (wrap map
+               (cl-mapcan
+                (lambda (form)
+                  (let ((fun (and (cdr form) (list 'function (cdr form)))))
+                    (if prefix-map
+                        `((bind-key ,(car form) ,fun ,prefix-map ,filter))
+                      (if (and map (not (eq map 'global-map)))
+                          `((bind-key ,(car form) ,fun ,map ,filter))
+                        `((bind-key ,(car form) ,fun nil ,filter))))))
+                first))
+         (when next
+           (bind-keys-form (if pkg
+                               (cons :package (cons pkg next))
+                             next) map)))))))
 
 ;;;###autoload
 (defmacro bind-keys (&rest args)
   "Bind multiple keys at once.
 
 Accepts keyword arguments:
-:map - a keymap into which the keybindings should be added
-:prefix-map - name of the prefix map that should be created for
-              these bindings
-:prefix - prefix key for these bindings
-:prefix-docstring - docstring for the prefix-map variable
-:menu-name - optional menu string for prefix map
+:map MAP               - a keymap into which the keybindings should be
+                         added
+:prefix KEY            - prefix key for these bindings
+:prefix-map MAP        - name of the prefix map that should be created
+                         for these bindings
+:prefix-docstring STR  - docstring for the prefix-map variable
+:menu-name NAME        - optional menu string for prefix map
+:filter FORM           - optional form to determine when bindings apply
 
 The rest of the arguments are conses of keybinding string and a
 function symbol (unquoted)."
-  (let* ((map (plist-get args :map))
-         (maps (if (listp map) map (list map)))
-         (doc (plist-get args :prefix-docstring))
-         (prefix-map (plist-get args :prefix-map))
-         (prefix (plist-get args :prefix))
-         (menu-name (plist-get args :menu-name))
-         (key-bindings (progn
-                         (while (keywordp (car args))
-                           (pop args)
-                           (pop args))
-                         args)))
-    (when (or (and prefix-map (not prefix))
-              (and prefix (not prefix-map)))
-      (error "Both :prefix-map and :prefix must be supplied"))
-    (when (and menu-name (not prefix))
-      (error "If :menu-name is supplied, :prefix must be too"))
-    (macroexp-progn
-     (append
-      (when prefix-map
-        `((defvar ,prefix-map)
-          ,@(when doc `((put ',prefix-map 'variable-documentation ,doc)))
-          ,@(if menu-name
-                `((define-prefix-command ',prefix-map nil ,menu-name))
-              `((define-prefix-command ',prefix-map)))
-          ,@(if maps
-                (mapcar
-                 #'(lambda (m)
-                     `(bind-key ,prefix ',prefix-map ,m)) maps)
-              `((bind-key ,prefix ',prefix-map)))))
-      (apply
-       #'nconc
-       (mapcar (lambda (form)
-                 (if prefix-map
-                     `((bind-key ,(car form) ',(cdr form) ,prefix-map))
-                   (if maps
-                       (mapcar
-                        #'(lambda (m)
-                            `(bind-key ,(car form) ',(cdr form) ,m)) maps)
-                     `((bind-key ,(car form) ',(cdr form))))))
-               key-bindings))))))
+  (macroexp-progn (bind-keys-form args nil)))
 
 ;;;###autoload
 (defmacro bind-keys* (&rest args)
-  `(bind-keys :map override-global-map ,@args))
+  (macroexp-progn (bind-keys-form args 'override-global-map)))
 
 (defun get-binding-description (elem)
   (cond
    ((listp elem)
     (cond
-     ((eq 'lambda (car elem))
+     ((memq (car elem) '(lambda function))
       (if (and bind-key-describe-special-forms
                (stringp (nth 2 elem)))
           (nth 2 elem)
@@ -256,7 +355,8 @@ function symbol (unquoted)."
       elem)))
    ;; must be a symbol, non-symbol keymap case covered above
    ((and bind-key-describe-special-forms (keymapp elem))
-    (get elem 'variable-documentation))
+    (let ((doc (get elem 'variable-documentation)))
+      (if (stringp doc) doc elem)))
    ((symbolp elem)
     elem)
    (t
@@ -308,8 +408,8 @@ function symbol (unquoted)."
                              (car (compare-keybindings l r))))))
 
         (if (not (eq (cdar last-binding) (cdar binding)))
-            (princ (format "\n\n%s\n%s\n\n"
-                           (cdar binding)
+            (princ (format "\n\n%s: %s\n%s\n\n"
+                           (cdar binding) (caar binding)
                            (make-string (+ 21 (car bind-key-column-widths)
                                            (cdr bind-key-column-widths)) ?-)))
           (if (and last-binding
@@ -347,6 +447,7 @@ function symbol (unquoted)."
 (provide 'bind-key)
 
 ;; Local Variables:
+;; outline-regexp: ";;;\\(;* [^\s\t\n]\\|###autoload\\)\\|("
 ;; indent-tabs-mode: nil
 ;; End:
 
