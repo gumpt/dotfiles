@@ -1129,11 +1129,33 @@
     ;;                '((foo bar baz))))
     ))
 
+
 (ert-deftest use-package-test/:custom-1 ()
   (match-expansion
    (use-package foo :custom (foo bar))
    `(progn
-      (customize-set-variable 'foo bar "Customized with use-package foo")
+      (let
+          ((custom--inhibit-theme-enable nil))
+        (unless (memq 'use-package custom-known-themes)
+          (deftheme use-package)
+          (enable-theme 'use-package)
+          (setq custom-enabled-themes (remq 'use-package custom-enabled-themes)))
+        (custom-theme-set-variables 'use-package
+                                    '(foo bar nil nil "Customized with use-package foo")))
+      (require 'foo nil nil))))
+
+(ert-deftest use-package-test/:custom-with-comment1 ()
+  (match-expansion
+   (use-package foo :custom (foo bar "commented"))
+   `(progn
+      (let
+          ((custom--inhibit-theme-enable nil))
+        (unless (memq 'use-package custom-known-themes)
+          (deftheme use-package)
+          (enable-theme 'use-package)
+          (setq custom-enabled-themes (remq 'use-package custom-enabled-themes)))
+        (custom-theme-set-variables 'use-package
+                                    '(foo bar nil nil "commented")))
       (require 'foo nil nil))))
 
 (ert-deftest use-package-test/:custom-face-1 ()
@@ -1473,6 +1495,37 @@
           '(progn
              (config)
              t))))))
+
+(ert-deftest use-package-test/pre-post-hooks-with-:config ()
+  (let ((use-package-inject-hooks t))
+    (match-expansion
+     (use-package foo :config (config))
+     `(progn
+       (when
+           (run-hook-with-args-until-failure 'use-package--foo--pre-init-hook)
+         (run-hooks 'use-package--foo--post-init-hook))
+       (require 'foo nil nil)
+       (when
+           (run-hook-with-args-until-failure 'use-package--foo--pre-config-hook)
+         (config)
+         (run-hooks 'use-package--foo--post-config-hook))
+       t))))
+
+(ert-deftest use-package-test/pre-post-hooks-without-:config ()
+  ;; https://github.com/jwiegley/use-package/issues/785
+  (let ((use-package-inject-hooks t))
+    (match-expansion
+     (use-package foo)
+     `(progn
+        (when
+            (run-hook-with-args-until-failure 'use-package--foo--pre-init-hook)
+          (run-hooks 'use-package--foo--post-init-hook))
+        (require 'foo nil nil)
+        (when
+            (run-hook-with-args-until-failure 'use-package--foo--pre-config-hook)
+          t
+          (run-hooks 'use-package--foo--post-config-hook))
+        t))))
 
 (ert-deftest use-package-test-normalize/:diminish ()
   (should (equal (use-package-normalize-diminish 'foopkg :diminish nil)
@@ -1904,6 +1957,18 @@
       (defvar my/map)
       (define-prefix-command 'my/map)
       (bind-key "<f1>" 'my/map nil nil))))
+
+
+(ert-deftest bind-key/845 ()
+  (defvar test-map (make-keymap))
+  (bind-key "<f1>" 'ignore 'test-map)
+  (should (eq (lookup-key test-map (kbd "<f1>")) 'ignore))
+  (let ((binding (cl-find "<f1>" personal-keybindings :test 'string= :key 'caar)))
+    (message "test-map %s" test-map)
+    (message "binding %s" binding)
+    (should (eq (cdar binding) 'test-map))
+    (should (eq (nth 1 binding) 'ignore))
+    (should (eq (nth 2 binding) nil))))
 
 ;; Local Variables:
 ;; indent-tabs-mode: nil

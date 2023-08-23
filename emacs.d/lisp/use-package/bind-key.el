@@ -94,7 +94,7 @@
 ;;
 ;;   M-x describe-personal-keybindings
 ;;
-;; This display will tell you if you've overriden a default keybinding, and
+;; This display will tell you if you've overridden a default keybinding, and
 ;; what the default was.  Also, it will tell you if the key was rebound after
 ;; your binding it with `bind-key', and what it was rebound it to.
 
@@ -154,10 +154,12 @@ spelled-out keystrokes, e.g., \"C-c C-z\". See documentation of
 
 COMMAND must be an interactive function or lambda form.
 
-KEYMAP, if present, should be a keymap and not a quoted symbol.
+KEYMAP, if present, should be a keymap variable or symbol.
 For example:
 
   (bind-key \"M-h\" #'some-interactive-function my-mode-map)
+
+  (bind-key \"M-h\" #'some-interactive-function 'my-mode-map)
 
 If PREDICATE is non-nil, it is a form evaluated to determine when
 a key should be bound. It must return non-nil in such cases.
@@ -166,15 +168,19 @@ or operates on menu data structures, so you should write it so it
 can safely be called at any time."
   (let ((namevar (make-symbol "name"))
         (keyvar (make-symbol "key"))
+        (kmapvar (make-symbol "kmap"))
         (kdescvar (make-symbol "kdesc"))
         (bindingvar (make-symbol "binding")))
     `(let* ((,namevar ,key-name)
             (,keyvar (if (vectorp ,namevar) ,namevar
                        (read-kbd-macro ,namevar)))
+            (,kmapvar (or (if (and ,keymap (symbolp ,keymap))
+                              (symbol-value ,keymap) ,keymap)
+                          global-map))
             (,kdescvar (cons (if (stringp ,namevar) ,namevar
                                (key-description ,namevar))
-                             (quote ,keymap)))
-            (,bindingvar (lookup-key (or ,keymap global-map) ,keyvar)))
+                             (if (symbolp ,keymap) ,keymap (quote ,keymap))))
+            (,bindingvar (lookup-key ,kmapvar ,keyvar)))
        (let ((entry (assoc ,kdescvar personal-keybindings))
              (details (list ,command
                             (unless (numberp ,bindingvar)
@@ -183,27 +189,57 @@ can safely be called at any time."
              (setcdr entry details)
            (add-to-list 'personal-keybindings (cons ,kdescvar details))))
        ,(if predicate
-            `(define-key (or ,keymap global-map) ,keyvar
+            `(define-key ,kmapvar ,keyvar
                '(menu-item "" nil :filter (lambda (&optional _)
                                             (when ,predicate
                                               ,command))))
-          `(define-key (or ,keymap global-map) ,keyvar ,command)))))
+          `(define-key ,kmapvar ,keyvar ,command)))))
 
 ;;;###autoload
 (defmacro unbind-key (key-name &optional keymap)
   "Unbind the given KEY-NAME, within the KEYMAP (if specified).
 See `bind-key' for more details."
-  `(progn
-     (bind-key ,key-name nil ,keymap)
-     (setq personal-keybindings
-           (cl-delete-if #'(lambda (k)
-                             ,(if keymap
-                                  `(and (consp (car k))
-                                        (string= (caar k) ,key-name)
-                                        (eq (cdar k) ',keymap))
-                                `(and (stringp (car k))
-                                      (string= (car k) ,key-name))))
-                         personal-keybindings))))
+  (let ((namevar (make-symbol "name"))
+        (kdescvar (make-symbol "kdesc")))
+    `(let* ((,namevar ,key-name)
+            (,kdescvar (cons (if (stringp ,namevar) ,namevar
+                               (key-description ,namevar))
+                             (if (symbolp ,keymap) ,keymap (quote ,keymap)))))
+       (bind-key--remove (if (vectorp ,namevar) ,namevar
+                           (read-kbd-macro ,namevar))
+                         (or (if (and ,keymap (symbolp ,keymap))
+                                 (symbol-value ,keymap) ,keymap)
+                             global-map))
+       (setq personal-keybindings
+             (cl-delete-if (lambda (k) (equal (car k) ,kdescvar))
+                           personal-keybindings))
+       nil)))
+
+(defun bind-key--remove (key keymap)
+  "Remove KEY from KEYMAP.
+
+In contrast to `define-key', this function removes the binding from the keymap."
+  (define-key keymap key nil)
+  ;; Split M-key in ESC key
+  (setq key (mapcan (lambda (k)
+                      (if (and (integerp k) (/= (logand k ?\M-\0) 0))
+                          (list ?\e (logxor k ?\M-\0))
+                        (list k)))
+                    key))
+  ;; Delete single keys directly
+  (if (= (length key) 1)
+      (delete key keymap)
+    ;; Lookup submap and delete key from there
+    (let* ((prefix (vconcat (butlast key)))
+           (submap (lookup-key keymap prefix)))
+      (unless (keymapp submap)
+        (error "Not a keymap for %s" key))
+      (when (symbolp submap)
+        (setq submap (symbol-function submap)))
+      (delete (last key) submap)
+      ;; Delete submap if it is empty
+      (when (= 1 (length submap))
+          (bind-key--remove prefix keymap)))))
 
 ;;;###autoload
 (defmacro bind-key* (key-name command &optional predicate)
