@@ -1,0 +1,12 @@
+[font]
+size = 15.0
+
+[font.normal]
+family = "Berkeley Mono"
+
+[font.offset]
+x = 0
+y = 3
+
+[selection]
+save_to_clipboard = true
